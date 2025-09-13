@@ -48,17 +48,19 @@ int is_valid_utf8(FILE *f, int first_byte, int *bytes_read) {
     return 1;
 }
 
+int print_error(char *path, int errnum) {
+    return fprintf(stdout, "%s: cannot determine (%s)\n", path, strerror(errnum));
+}
+
 // Ser efter om den er empty eller data
 // Hvis data, så tjekker den ASCII/ISO/UTF-8
 
 enum file_type detect_filetype(const char *path) {
     FILE *f = fopen(path, "rb");
+    // 2.3 Error handling
     if (!f) {
-
-        // 2.3 Error handling
-        fprintf(stderr, "Debug: could not open '%s' (%s)\n",
-                path, strerror(errno));
-        return DATA; // I/O fejl skal rapporteres som data
+        print_error((char *)path, errno);  // brug helper
+        return DATA; // stadig klassificeret som data
     }
 
     // 3 Filtyper (15%) 
@@ -93,9 +95,9 @@ enum file_type detect_filetype(const char *path) {
             int bytes_read = 0;
             if (!is_valid_utf8(f, b, &bytes_read)) {
                 is_utf8 = 0;
-            } else {
-                if (bytes_read > 1) {
-                    saw_multibyte_utf8 = 1; // <--- NY: kun hvis vi ser multi-byte
+            } else {    
+                if (bytes_read > 1) { 
+                    saw_multibyte_utf8 = 1;
                 }
 
                 // spring continuation bytes over
