@@ -1,9 +1,10 @@
-#include <stdio.h> // fprintf, stdout, stderr.
+#include <stdio.h>   // fprintf, stdout, stderr
 #include <stdlib.h>  // exit, EXIT_FAILURE, EXIT_SUCCESS
-#include <string.h>  // strcmp
-#include <errno.h>  // errno
+#include <string.h>  // strerror
+#include <errno.h>   // errno
 
-enum file_type {   
+// Filtyper
+enum file_type {
     DATA,
     EMPTY,
     ASCII,
@@ -11,127 +12,109 @@ enum file_type {
     UTF8
 };
 
-//Array med strings for hver filtype
+// Strings til output
 const char * const FILE_TYPE_STRINGS[] = {
-  "data",
-  "empty",
-  "ASCII text",
-  "ISO-8859 text",
-  "UTF-8 Unicode text",
+    "data",
+    "empty",
+    "ASCII text",
+    "ISO-8859 text",
+    "UTF-8 Unicode text",
 };
 
-//Hjælpe funktioner til at tjekke byte typer
-int is_valid_utf8(FILE *f, int first_byte, int *bytes_read) {
-    int expected_bytes;
-
-    if ((first_byte & 0x80) == 0x00) { // 1-byte ASCII
-        *bytes_read = 1;
-        return 1;
-    } else if ((first_byte & 0xE0) == 0xC0) { // 2-byte
-        expected_bytes = 2;
-    } else if ((first_byte & 0xF0) == 0xE0) { // 3-byte
-        expected_bytes = 3;
-    } else if ((first_byte & 0xF8) == 0xF0) { // 4-byte
-        expected_bytes = 4;
-    } else {
-        return 0; // ulovlig startbyte
-    }
-
-    for (int i = 1; i < expected_bytes; i++) {
-        int c = fgetc(f);
-        if (c == EOF || (c & 0xC0) != 0x80) {
-            return 0;
-        }
-    }
-
-    *bytes_read = expected_bytes;
-    return 1;
-}
-
+// Bruges til fejlbeskeder (skal printe til STDOUT og stadig EXIT_SUCCESS i 2.3)
 int print_error(char *path, int errnum) {
     return fprintf(stdout, "%s: cannot determine (%s)\n", path, strerror(errnum));
 }
 
-// Ser efter om den er empty eller data
-// Hvis data, så tjekker den ASCII/ISO/UTF-8
+// ASCII-lignende pr. opgaven
+static int is_ascii_like(unsigned char b) {
+    return ((b >= 0x07 && b <= 0x0D) || b == 0x1B || (b >= 0x20 && b <= 0x7E));
+}
 
-enum file_type detect_filetype(const char *path) {
+// Tjek første byte for hvor mange UTF-8 bytes vi forventer
+static int utf8_expected_bytes(unsigned char b) {
+    if ((b & 0x80) == 0x00) return 1;        // 0xxxxxxx
+    else if ((b & 0xE0) == 0xC0) return 2;   // 110xxxxx
+    else if ((b & 0xF0) == 0xE0) return 3;   // 1110xxxx
+    else if ((b & 0xF8) == 0xF0) return 4;   // 11110xxx
+    else return 0; // ulovlig startbyte
+}
+
+// Find filtype
+int detect_filetype(const char *path) {
     FILE *f = fopen(path, "rb");
-    // 2.3 Error handling
     if (!f) {
-        print_error((char *)path, errno);  // brug helper
-        return DATA; // stadig klassificeret som data
+        print_error((char *)path, errno);  // 2.3: én linje til stdout
+        return -1;                         // marker fejl (main printer ikke type)
     }
 
-    // 3 Filtyper (15%) 
     int c = fgetc(f);
-    if (c == EOF) {
+    if (c == EOF) {   // tom fil
         fclose(f);
-        return EMPTY; // tom fil
+        return EMPTY;
     }
 
-    int is_ascii = 1; // antag at filen er ASCII indtil vi finder andet
-    int is_iso = 1;// antag at filen er ISO-8859 indtil vi finder andet
-    int is_utf8 = 1;// antag at filen er UTF-8 indtil vi finder andet
+    int is_ascii = 1;
+    int is_iso = 1;
+    int is_utf8 = 1;
     int saw_multibyte_utf8 = 0;
 
     do {
         unsigned char b = (unsigned char)c;
 
-        // ASCII check
-        if (!((b >= 0x07 && b <= 0x0D) ||
-              (b == 0x1B) ||
-              (b >= 0x20 && b <= 0x7E))) {
-            is_ascii = 0; // fundet et ikke-ASCII tegn
+        // --- ASCII check (per byte) ---
+        if (!is_ascii_like(b)) is_ascii = 0;
+
+        // --- ISO-8859-1 check (per byte) ---
+        if (!(is_ascii_like(b) || b >= 0xA0) || (b >= 0x80 && b <= 0x9F)) {
+            is_iso = 0;
         }
 
-        // ISO-8859 check
-        if (!(is_ascii || (b >= 0xA0)) || (b >= 0x80 && b <= 0x9F)) {
-            is_iso = 0; // ulovlige bytes i ISO
-        }
-
-        // UTF-8 check
+        // --- UTF-8 check ---
         if (is_utf8) {
-            int bytes_read = 0;
-            if (!is_valid_utf8(f, b, &bytes_read)) {
+            int expected = utf8_expected_bytes(b);
+            if (expected == 0) {
                 is_utf8 = 0;
-            } else {    
-                if (bytes_read > 1) { 
-                    saw_multibyte_utf8 = 1;
-                }
-
-                // spring continuation bytes over
-                for (int i = 1; i < bytes_read; i++) {
-                    c = fgetc(f);
-                    if (c == EOF) {
+            } else if (expected > 1) {
+                saw_multibyte_utf8 = 1;
+                // Tjek continuation-bytes og opdatér også ASCII/ISO på dem
+                for (int i = 1; i < expected; i++) {
+                    int d = fgetc(f);
+                    if (d == EOF || ((d & 0xC0) != 0x80)) {
                         is_utf8 = 0;
                         break;
+                    }
+                    unsigned char cont = (unsigned char)d;
+                    if (!is_ascii_like(cont)) is_ascii = 0;
+                    if (!(is_ascii_like(cont) || cont >= 0xA0) || (cont >= 0x80 && cont <= 0x9F)) {
+                        is_iso = 0;
                     }
                 }
             }
         }
 
+        // videre til næste lead byte
     } while ((c = fgetc(f)) != EOF);
-    
+
     fclose(f);
 
-    if (is_ascii) return ASCII; // kun ASCII tegn
+    if (is_ascii) return ASCII;
+    if (is_utf8 && saw_multibyte_utf8) return UTF8; // undgå at kalde binære/ASCII+NUL for UTF-8
     if (is_iso) return ISO_8859;
-    if (is_utf8 && saw_multibyte_utf8)  return UTF8;
     return DATA;
 }
 
-// Opgave 2.1  
+// --- main ---
 int main(int argc, char *argv[]) {
-    // Accept exactly one argument
     if (argc != 2) {
-      // 2.2: ingen argumenter -> usage + EXIT_FAILURE
-      fprintf(stderr, "Usage: file path\n");
-      return EXIT_FAILURE;
+        fprintf(stderr, "Usage: file path\n"); // 2.2: stderr + EXIT_FAILURE
+        return EXIT_FAILURE;
     }
 
-    enum file_type t = detect_filetype(argv[1]);        //
-    printf("%s: %s\n", argv[1], FILE_TYPE_STRINGS[t]);  //
-   
-    return EXIT_SUCCESS;                                
-} 
+    int t = detect_filetype(argv[1]);
+    if (t >= 0) {
+        printf("%s: %s\n", argv[1], FILE_TYPE_STRINGS[t]); // 2.1: stdout + EXIT_SUCCESS
+    }
+    // Ved I/O-fejl har detect_filetype allerede printet korrekt linje, og vi skal stadig EXIT_SUCCESS
+    return EXIT_SUCCESS;
+}
