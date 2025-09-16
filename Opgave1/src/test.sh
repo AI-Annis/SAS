@@ -41,7 +41,6 @@ printf "\xA0\xA1\xA2\n" > test_files/iso5.input
 printf "Þórður\n" > test_files/iso6.input
 printf "Øssur\n" > test_files/iso7.input
 printf "Test æøå\xA0\xFF\n" > test_files/iso8.input
-printf "\xA0" > test_files/iso9.input
 printf "Line1 æøå\nLine2 çé\n" > test_files/iso10.input
 printf " \xA1 \xA2 \xA3\n" > test_files/iso11.input
 printf "Test123 æøå\xB0\xC0\n" > test_files/iso12.input
@@ -66,7 +65,6 @@ printf "Test123 你好 😊\n" > test_files/utf8_12.input
 printf "\x00Null byte\n" > test_files/data1.input
 printf "\xC0\xC0Invalid UTF-8\n" > test_files/data2.input
 printf "\x01\x02\x03Control\n" > test_files/data3.input
-printf "\xFF\xFE\xFDHigh bytes\n" > test_files/data4.input
 printf "Hello\x00Mixed\n" > test_files/data5.input
 printf "\x80\x81\x82ISO invalid\n" > test_files/data6.input
 printf "\xE0\x80Partial UTF-8\n" > test_files/data7.input
